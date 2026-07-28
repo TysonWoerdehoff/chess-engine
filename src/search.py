@@ -42,17 +42,34 @@ def negamax(board: chess.Board, depth: int, model: ChessNet, ply: int = 0) -> fl
         return quiescence(board, model, ply, 0, 2)
 
     best = -float("inf")
-    for move in board.legal_moves:
+    for move in order_moves(board):
         board.push(move)
         score = -negamax(board, depth - 1, model, ply + 1)
         board.pop()
         best = max(best, score)
     return best
 
-def best_move(board, depth, model) -> chess.Move:
+def move_score(board: chess.Board, move: chess.Move) -> int:
+    if not board.is_capture(move):
+        return 0
+    victim = board.piece_at(move.to_square)
+    attacker = board.piece_at(move.from_square)
+    victim_value = PIECE_VALUES[victim.piece_type] if victim else PIECE_VALUES[chess.PAWN]
+    return 10 * victim_value - PIECE_VALUES[attacker.piece_type]
+
+
+def order_moves(board: chess.Board) -> list:
+    return sorted(board.legal_moves, key=lambda m: move_score(board, m), reverse=True)
+
+def best_move(board, depth, model, book=None) -> chess.Move:
+    if book is not None:
+        try: 
+            return book.weighted_choice(board).move
+        except IndexError:
+            pass
     best_score = -float("inf")
     best_mv = None
-    for move in board.legal_moves:
+    for move in order_moves(board):
         board.push(move)
         score = -alphabeta(board, depth - 1, -float("inf"), -best_score, model, 1)
         board.pop()
@@ -65,7 +82,7 @@ def quiescence(board: chess.Board, model: ChessNet, ply: int = 0, qply: int = 0,
     if board.is_checkmate(): return -(MATE_SCORE - ply) 
     best = evaluate(board, model)
     if (max_qdepth <= qply): return best
-    for move in board.legal_moves:
+    for move in order_moves(board):
         if(board.is_capture(move)):
             board.push(move)
             score = -quiescence(board, model, ply + 1, qply + 1, max_qdepth)
@@ -80,7 +97,7 @@ def alphabeta(board, depth, alpha, beta, model, ply=0) -> float:
         return 0.0
     if depth == 0:
         return quiescence(board, model, ply, 0, 2)
-    for move in board.legal_moves:
+    for move in order_moves(board):
         board.push(move)
         score = - alphabeta(board, depth - 1, -beta, -alpha, model, ply+1)
         board.pop()

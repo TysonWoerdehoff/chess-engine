@@ -8,7 +8,7 @@ from dataset import load_dataframe, ChessDataset
 from model import ChessNet
 
 def main():
-    df = load_dataframe("data/chessData.csv", n_rows = 5_000_000)
+    df = load_dataframe("data/chessData.csv", n_rows = 1_000_000)
     dataset = ChessDataset(df)
     n = len(dataset)
     train_size = int(n * .9)
