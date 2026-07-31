@@ -1,29 +1,72 @@
 import chess
 import torch
 import time
-from search import best_move
+import random
 from model import ChessNet
+import search
+from search import material_balance, alphabeta, order_moves
 
 model = ChessNet()
 model.load_state_dict(torch.load("models/chess_net.pt"))
 model.eval()
 
-POSITIONS = [
-    ("opening",    chess.Board()),
-    ("developed",  chess.Board("r1bqkb1r/pppppppp/2n2n2/8/4P3/2N5/PPPP1PPP/R1BQKBNR w KQkq - 0 1")),
-    ("tactical",   chess.Board("r1bqkb1r/pppp1ppp/4p3/1B1P4/3Q4/2N5/PPP2PPP/R1B1K1NR b - - 0 7")),
-    ("endgame",    chess.Board("8/5p2/6kp/7P/2P2P2/1P1N4/R7/4K3 w - - 0 1")),
-]
+DEPTH = 2
+GAMES = 20
+MAX_PLIES = 250
+RANDOM_OPENING_PLIES = 4
 
-DEPTHS = [1, 2, 3, 4]
+random.seed(42)
 
-print(f"{'position':12} {'depth':>5} {'move':>8} {'seconds':>9}")
-print("-" * 38)
 
-for name, board in POSITIONS:
-    for depth in DEPTHS:
-        t0 = time.time()
-        mv = best_move(board, depth, model)
-        elapsed = time.time() - t0
-        print(f"{name:12} {depth:>5} {board.san(mv):>8} {elapsed:>9.2f}")
-    print()
+def pick(board, depth, use_network):
+    """Root search. If use_network is False, evaluation is material+heuristics only."""
+    original = search.evaluate
+    if not use_network:
+        search.evaluate = lambda b, m: material_balance(b)
+    try:
+        best_score = -float("inf")
+        best_mv = None
+        for move in order_moves(board):
+            board.push(move)
+            score = -alphabeta(board, depth - 1, -float("inf"), -best_score, model, 1)
+            board.pop()
+            if score > best_score:
+                best_score = score
+                best_mv = move
+        return best_mv
+    finally:
+        search.evaluate = original
+
+
+nn_wins = mat_wins = draws = 0
+t_start = time.time()
+
+for game in range(GAMES):
+    board = chess.Board()
+    for _ in range(RANDOM_OPENING_PLIES):
+        if board.is_game_over():
+            break
+        board.push(random.choice(list(board.legal_moves)))
+    opening_fen = board.fen()
+
+    nn_is_white = game % 2 == 0
+    plies = 0
+    while not board.is_game_over() and plies < MAX_PLIES:
+        board.push(pick(board, DEPTH, board.turn == nn_is_white))
+        plies += 1
+
+    result = board.result()
+    if plies >= MAX_PLIES or result == "1/2-1/2":
+        draws += 1
+        outcome = "draw"
+    elif (result == "1-0") == nn_is_white:
+        nn_wins += 1
+        outcome = "NN"
+    else:
+        mat_wins += 1
+        outcome = "material"
+
+    print(f"game {game:2}  nn={'W' if nn_is_white else 'B'}  {result:8} {plies:3} plies  winner: {outcome}")
+
+print(f"\nNN: {nn_wins}   material-only: {mat_wins}   draws: {draws}")
+print(f"({time.time()-t_start:.0f}s total)")

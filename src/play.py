@@ -16,18 +16,23 @@ def play():
         print("No opening book found, playing without one")
         book = None
     board = chess.Board()
+    color_in = input("play as White or Black: ")
+    color = chess.WHITE if color_in.lower().startswith("w") else chess.BLACK
     while(not board.is_game_over()):
         print(board)
-        move_in = input("Enter a move: ")
-        try:
-            board.push_san(move_in)
-        except ValueError:
-            print("Illegal move, try again")
-            continue
+        if board.turn == color:
+            move_in = input("Enter a move: ")
+            try:
+                board.push_san(move_in)
+            except ValueError:
+                print("Illegal move, try again")
+                continue
+        else:
+            mv = best_move(board, 3, model, book)
+            print("Engine plays:", board.san(mv))
+            board.push(mv)
         if board.is_game_over(): break
-        mv = best_move(board, 3, model, book)
-        print("Engine plays:", board.san(mv))
-        board.push(mv)
+        
     print(board.result())
 
 

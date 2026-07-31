@@ -5,6 +5,9 @@ import time
 from encode import board_to_tensor
 from model import ChessNet
 
+
+
+
 def evaluate(board: chess.Board, model: ChessNet) -> float:
     x = board_to_tensor(board)
     x = x.unsqueeze(0)
@@ -24,11 +27,19 @@ PIECE_VALUES = {
     chess.KING: 0,
 }
 
+PASSED_PAWN_BONUS = 20
+KING_ACTIVITY_WEIGHT = 8
+ENDGAME_THRESHOLD = 1800
+
+
 def material_balance(board: chess.Board) -> float:
     total = 0
+    
     for piece in board.piece_map().values():
         if (piece.color): total += PIECE_VALUES[piece.piece_type]
         else: total -= PIECE_VALUES[piece.piece_type]
+    total += passed_pawn_bonus(board)
+    total += king_activity_bonus(board)
     if (not board.turn): total = -total
     return total/1000
 
@@ -104,7 +115,52 @@ def alphabeta(board, depth, alpha, beta, model, ply=0) -> float:
         if (score >= beta): return beta
         if (score > alpha): alpha = score
     return alpha
-    
+
+def is_passed(board: chess.Board, sq: int, color: bool) -> bool:
+    file = sq % 8
+    rank = sq // 8
+    for ep in board.pieces(chess.PAWN, not color):
+        if abs((ep % 8) - file) > 1:
+            continue
+        ep_rank = ep // 8
+        if color == chess.WHITE and ep_rank > rank:
+            return False
+        if color == chess.BLACK and ep_rank < rank:
+            return False
+    return True
+
+
+def passed_pawn_bonus(board: chess.Board) -> int:
+    total = 0
+    for sq in board.pieces(chess.PAWN, chess.WHITE):
+        if is_passed(board, sq, chess.WHITE):
+            total += PASSED_PAWN_BONUS * (sq // 8)
+    for sq in board.pieces(chess.PAWN, chess.BLACK):
+        if is_passed(board, sq, chess.BLACK):
+            total -= PASSED_PAWN_BONUS * (7 - (sq // 8))
+    return total
+
+
+def non_pawn_material(board: chess.Board) -> int:
+    total = 0
+    for piece in board.piece_map().values():
+        if piece.piece_type not in (chess.PAWN, chess.KING):
+            total += PIECE_VALUES[piece.piece_type]
+    return total
+
+
+def centre_distance(sq: int) -> float:
+    return abs((sq % 8) - 3.5) + abs((sq // 8) - 3.5)
+
+
+def king_activity_bonus(board: chess.Board) -> float:
+    if non_pawn_material(board) > ENDGAME_THRESHOLD:
+        return 0
+    wk = board.king(chess.WHITE)
+    bk = board.king(chess.BLACK)
+    if wk is None or bk is None:
+        return 0
+    return KING_ACTIVITY_WEIGHT * (centre_distance(bk) - centre_distance(wk))
     
     
 if __name__ == "__main__":
@@ -112,12 +168,6 @@ if __name__ == "__main__":
     model.load_state_dict(torch.load("models/chess_net.pt"))
     model.eval()
 
-    b = chess.Board("r1bqkb1r/pppppppp/2n2n2/8/4P3/2N5/PPPP1PPP/R1BQKBNR w KQkq - 0 1")
-    
-    t0 = time.time()
-    s1 = negamax(b, 3, model)
-    print(f"negamax:   {s1:.6f} in {time.time()-t0:.1f}s")
-    
-    t0 = time.time()
-    s2 = alphabeta(b, 3, -float("inf"), float("inf"), model)
-    print(f"alphabeta: {s2:.6f} in {time.time()-t0:.1f}s")
+    b1 = chess.Board("4k3/8/8/3P4/8/8/8/4K3 w - - 0 1")
+    b2 = chess.Board("4k3/8/8/3P4/8/8/8/4K3 b - - 0 1")
+    print(material_balance(b1), material_balance(b2))       
